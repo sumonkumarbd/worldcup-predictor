@@ -104,20 +104,54 @@ def predictions():
     preds = []
     for item in d["predictions"]:
         pred = dict(item)
+        neutral = pred.get("neutral", True)
+        k = int(pred.get("k", 60))
+        is_knockout = pred.get("is_knockout", False)
         explanation = pc.explain_matchup(
             d["gbm"], d["elo_final"], d["form_final"],
             pred["home"], pred["away"],
-            neutral=pred.get("neutral", True),
-            k=int(pred.get("k", 60)),
+            neutral=neutral,
+            k=k,
             rho=d.get("rho", 0.0)
         )
         pred["home_explanation"] = explanation["home_explanation"]
         pred["away_explanation"] = explanation["away_explanation"]
+        # Build precomputed dict from the prediction entry so preview uses
+        # exactly the same numbers as model_H/D/A — no second predict_matchup call.
+        precomputed = {
+            "p_home":            pred["model_H"],
+            "p_draw":            pred["model_D"],
+            "p_away":            pred["model_A"],
+            "home_elo":          pred["home_elo"],
+            "away_elo":          pred["away_elo"],
+            "most_likely_score": pred["most_likely_score"],
+            "p_most_likely":     pred["p_most_likely"],
+            "is_knockout":       pred.get("is_knockout", False),
+            "p_home_advances":   pred.get("p_home_advances"),
+            "p_away_advances":   pred.get("p_away_advances"),
+        }
+        pred["preview"] = pc.generate_match_preview(
+            pred["home"], pred["away"], d["played"], precomputed, d["elo_final"]
+        )
+        hf = pc.get_team_form(pred["home"], d["played"], n=10, elo_final=d["elo_final"])
+        af = pc.get_team_form(pred["away"],  d["played"], n=10, elo_final=d["elo_final"])
+        pred["home_form"] = hf["result_string"][-5:]
+        pred["away_form"] = af["result_string"][-5:]
         pred.pop("neutral", None)
         pred.pop("k", None)
         # is_knockout / p_home_advances / p_away_advances pass through if present
         preds.append(pred)
     return jsonify(preds)
+
+
+@app.route("/api/form/<team>")
+def team_form(team):
+    with _lock:
+        d = _state["data"]
+    if not d:
+        return jsonify(error="not ready"), 503
+    form = pc.get_team_form(team, d["played"], n=10, elo_final=d["elo_final"])
+    return jsonify(form)
 
 
 @app.route("/api/teams")
@@ -147,6 +181,15 @@ def matchup():
     explanation = pc.explain_matchup(d["gbm"], d["elo_final"], d["form_final"], home, away, neutral=neutral, k=k, rho=d.get("rho", 0.0))
     result["home_explanation"] = explanation["home_explanation"]
     result["away_explanation"] = explanation["away_explanation"]
+    hf = pc.get_team_form(home, d["played"], n=10, elo_final=d["elo_final"])
+    af = pc.get_team_form(away, d["played"], n=10, elo_final=d["elo_final"])
+    result["home_form"] = hf["result_string"][-5:]
+    result["away_form"] = af["result_string"][-5:]
+    # Pass the already-computed result dict — preview reads p_home/p_draw/p_away
+    # directly from it, so preview and header numbers are guaranteed identical.
+    result["preview"] = pc.generate_match_preview(
+        home, away, d["played"], result, d["elo_final"]
+    )
     return jsonify(result)
 
 

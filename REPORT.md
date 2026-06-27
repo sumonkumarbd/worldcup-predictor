@@ -213,6 +213,236 @@ worth checking against actual team news before trusting either side blindly.
   — hasn't been checked for whether the Elo-shootout relationship is stable across,
   say, different continents or knockout formats.
 
+## Phase 6 — StatsBomb corners model (explored, not shipped)
+
+**Motivation:** the goals model gives λ per team but nothing about set-piece
+pressure. Corners per team per match felt like a useful extra signal (and a
+natural second target from event-level data). StatsBomb's open dataset is the
+only freely available event-level source for international football, so it was
+the natural place to look.
+
+**Data collected:**
+StatsBomb open data — 16 senior international competitions
+(`competition_international=true`, `competition_youth=false`):
+WC 1958/62/70/74/86/90, WC 2018/2022, UEFA Euro 2020/2024, Copa America 2024,
+AFCON 2023, Women's WC 2019/2023, UEFA Women's Euro 2022/2025.
+511 matches in metadata; 504 events successfully fetched (7 HTTP 400 errors on
+specific GitHub raw-content URLs — unrecoverable).
+
+**Name mapping (men's competitions):**
+78 distinct StatsBomb team names in men's competitions; **78/78 mapped**
+(100%) to our `elo_final` canonical names. Two manual additions were required:
+
+| StatsBomb | → ours | reason |
+|---|---|---|
+| `Congo DR` | `DR Congo` | word order swap |
+| `Côte d'Ivoire` | `Ivory Coast` | accented form vs ASCII form |
+
+All other names matched exactly or via fuzzy match (difflib cutoff 0.8).
+Women's competitions (43 team names) carry no men's-data Elo/form — all got
+`is_womens=1` flag and default features (`ELO_INIT=1500`, `gf/ga=GMEAN=1.4`).
+
+**Match retention:** 504 / 504 usable (7 lost to event-fetch errors, **zero**
+lost to name-mapping failures after the two manual additions).
+
+**Feature join (men's matches):**
+```
+played_df exact join   307 / 332   (92.5%)  — real pre-match Elo + form
+elo_final fallback       25 / 332   ( 7.5%)  — old WC matches (1958-1990)
+```
+
+**Pooled run and hypothesis tested:** the first model run pooled all 504
+matches — men's and women's — with an `is_womens` binary flag and default
+`ELO_INIT / GMEAN` features for the 178 women's rows. The calibration table
+showed a −1.05 corner bias in the lowest-λ bucket, and the initial hypothesis
+was that women's matches, whose flat default features push predicted λ
+artificially low, were the cause. The men's-only re-run was run specifically
+to test that hypothesis. It was wrong: removing all 178 women's rows made the
+low-λ bias worse (−1.353, not better), confirming women's default features
+were not the driver. The real cause — stale `elo_final` values for dissolved
+nations (Soviet Union, West Germany, Czechoslovakia) concentrating in that
+same bucket — was identified only after the hypothesis was refuted.
+
+**MEN'S-ONLY model (decisive run — pre-committed go/no-go):**
+
+Restricted to the 332 men's matches; women's rows removed from both train and
+test so they contribute nothing to evaluation.
+
+Chronological split (cutoff 2024-01-01):
+```
+Train: 197 matches (394 rows) — World Cup 2018/2022, Euro 2020, old WC
+Test:  135 matches (270 rows) — AFCON 2023, Copa America 2024, Euro 2024
+```
+
+Model: `HistGradientBoostingRegressor(loss="poisson")`,
+features: `elo_diff, team_gf, team_ga, opp_gf, opp_ga, is_home_adv`.
+
+Baseline: flat Poisson(λ = 4.591) — train-set mean corners per team, no
+features at all.
+
+```
+Mean Poisson NLL (model):    2.4919
+Mean Poisson NLL (baseline): 2.5152
+Difference (model − base):  −0.0233  (model better, point estimate)
+
+Bootstrap 95% CI for (model − baseline): [−0.1396, +0.0965]
+→ CI spans zero — not statistically distinguishable from baseline
+```
+
+Calibration table (10 quantile buckets of predicted λ):
+```
+pred λ range          pred_mean  actual_mean   n    bias
+(1.123, 2.627]            1.943        3.296  27   −1.353
+(2.627, 3.355]            2.951        3.481  27   −0.530
+(3.355, 4.002]            3.675        4.185  27   −0.511
+(4.002, 4.368]            4.188        3.741  27   +0.447
+(4.368, 4.761]            4.577        4.393  28   +0.184
+(4.761, 5.060]            4.874        4.346  26   +0.528
+(5.060, 5.413]            5.243        5.741  27   −0.498
+(5.413, 5.942]            5.731        4.667  27   +1.064
+(5.942, 6.504]            6.141        5.778  27   +0.364
+(6.504, 8.103]            7.052        6.259  27   +0.793
+
+Mean |bias|: 0.6272 corners per team per match
+```
+
+**Pre-committed decision rule applied:**
+- CI excludes zero (full CI < 0): **NO** — CI = [−0.140, +0.097]
+- Mean |bias| < 0.4 corners: **NO** — bias = 0.627
+
+**DECISION: PARK.**
+
+**Why the calibration fails:** the lowest-λ bucket shows systematic
+under-prediction of ~1.35 corners. These are historical WC matches (1958-1990)
+where `elo_final_fallback` assigns current Elo values to teams that no longer
+exist as nations (Soviet Union, Czechoslovakia, West Germany) — those current
+Elo values are very low (post-dissolution era), which drives λ down, but the
+actual corner counts are normal. The 25 fallback matches are concentrated in the
+low end of the λ distribution and poison that bucket. The fix would be to drop
+those 25 entirely (they have no reliable Elo at match time); doing so would
+leave 172 train matches — already a thin basis for a second model.
+
+**Root constraint:** 197 men's training matches is the hard limit of what
+StatsBomb makes freely available. At n=135 test matches, any real effect would
+need to be large to clear a two-tailed 95% CI. A corners model that's merely
+"not worse than the mean" is not useful to the API.
+
+**To revisit if StatsBomb releases more event data** — the name-mapping
+infrastructure (`MANUAL_MAP`, `try_map()`) and all evaluation machinery
+are preserved in `scratchpad/corners_mens_only.py`. The 2 MANUAL_MAP entries
+(`Congo DR → DR Congo`, `Côte d'Ivoire → Ivory Coast`) would need to be copied
+into `predictor_core.py` if a future run integrates this.
+
+## Phase 6.5 — Team form analysis (`get_team_form`)
+
+**What it does:** `get_team_form(team_name, played_df, n=10, elo_final)` scans the
+last `n` matches involving a team (home or away), computes per-match W/D/L and
+goals, and returns:
+
+```
+result_string     "WWWWDLWWWD"  (oldest → newest, length = n_matches)
+current_streak    int           consecutive non-losses counting backward from most recent
+avg_goals_for     float
+avg_goals_against float
+points_per_game   float
+current_elo       float
+elo_n_ago         float         (Elo as of the oldest match in the window)
+elo_trend         "rising"|"stable"|"falling"  (threshold ±20 pts)
+last_5            list of {opponent, score, result, date}
+n_matches         int
+```
+
+Also wired into `/api/form/<team>` endpoint, and into `/api/predictions` and
+`/api/matchup` as `home_form` / `away_form` (last 5 of `result_string`, shown
+as colour-coded W/D/L badges in the dashboard).
+
+**Bug found and fixed — streak vs. rate:**
+
+The first implementation computed `unbeaten_rate = wins + draws` (total
+non-losses over the window) and generated "unbeaten in N of last M" phrasing
+regardless of whether those non-losses were consecutive or scattered. This is
+misleading: "unbeaten in 9 of last 10" strongly implies a current run, not just
+a proportion.
+
+England's last 10 at the time of validation:
+
+```
+result_string = "WWWWDLWWWD"   (oldest → newest)
+wins + draws  = 9              (non-loss rate = 9/10)
+current_streak = 4             (WWWD counting back from the right — blocked by the L)
+```
+
+Fix:
+```python
+current_streak = 0
+for r in reversed(result_string):
+    if r != "L":
+        current_streak += 1
+    else:
+        break
+```
+
+Rule: use streak language ("on a N-game unbeaten run") **only** when
+`current_streak == wins + draws` — i.e. all non-losses are genuinely
+consecutive from the present. Otherwise use rate language ("XW-YD-ZL in their
+last N"). This distinction prevents a team that lost three matches ago from
+being described as "on an unbeaten run."
+
+**Validation (literal output):**
+
+```
+Argentina  result_string=LWWWWWWWWW  streak=9  rate=9  → streak language ✓
+England    result_string=WWWWDLWWWD  streak=4  rate=9  → rate language   ✓
+```
+
+## Phase 7 — Human-language match previews (`generate_match_preview`)
+
+**What it does:** composes a 3–5 sentence natural-language preview from the
+model's own outputs — no hardcoded facts, no external text.
+
+Sentence structure:
+1. Home team form (streak or rate language, Phase 6.5 rule)
+2. Away team form (same)
+3. H2H summary (last 5 meetings, or "No previous meetings recorded" if absent)
+4. Elo gap narrative + model W/D/L% + most likely scoreline + its probability
+5. (knockout matches only) Advancement % after ET and potential shootout
+
+Added as `preview` field to both `/api/predictions` and `/api/matchup`. Also
+wired into `index.html`: form badges (last-5 W/D/L letters, colour-coded
+green/dim/red) shown above each prediction card; preview text block shown below
+the scoreline heatmap in the matchup explorer.
+
+**Validation — 3 cases (literal output as generated by the live model):**
+
+*Lopsided — Jordan vs Argentina (neutral, not knockout):*
+> Jordan arrive 3W-2D-5L in their last 10, averaging 1.4 scored and 1.8
+> conceded per match. Argentina arrive on a 9-game unbeaten run, averaging 2.6
+> scored and 0.2 conceded per match. No previous meetings between Jordan and
+> Argentina are recorded in the dataset. The model gives Jordan a 1.9% win
+> probability, draw 6.8%, Argentina 91.3%, with Argentina holding a 504-point
+> Elo edge (2194 vs 1689); most likely scoreline is 0-3 (14.5%).
+
+*Close — England vs France (neutral, not knockout):*
+> England arrive 7W-2D-1L in their last 10, averaging 2.1 scored and 0.4
+> conceded per match. France arrive 8W-1D-1L in their last 10, averaging 2.8
+> scored and 1.0 conceded per match. In their last 5 meetings, England won 1,
+> drawn 1, France won 3. The model gives England a 22.6% win probability, draw
+> 25.9%, France 51.5%, with France holding a 98-point Elo edge (2159 vs 2062);
+> most likely scoreline is 1-1 (12.3%).
+
+*Knockout — Panama vs England (neutral, is_knockout=True):*
+> Panama arrive 3W-3D-4L in their last 10, averaging 1.4 scored and 1.5
+> conceded per match. England arrive 7W-2D-1L in their last 10, averaging 2.1
+> scored and 0.4 conceded per match. In their last 1 meeting, England won 1.
+> The model gives Panama a 8.5% win probability, draw 18.8%, England 72.7%,
+> with England holding a 310-point Elo edge (2062 vs 1752); most likely
+> scoreline is 0-2 (15.1%). Factoring in extra time and a potential penalty
+> shootout, Panama have a 13.7% chance of advancing versus 86.3% for England.
+
+Note: England's form sentence uses rate language ("7W-2D-1L in their last 10")
+in all three cases — confirming the Phase 6.5 streak fix is active, since
+England's current_streak (4) ≠ unbeaten_rate (9).
+
 ## Files in this delivery
 - `predictor_core.py` — full pipeline (data, Elo, features, model, Dixon-Coles,
   knockout/shootout layer, SHAP explanations)

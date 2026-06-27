@@ -380,16 +380,38 @@ def _feature_reason(feature, impact, raw_value=None):
     return f'{negative_phrase} ({fmt})'
 
 
-def _build_matchup_frames(home, away, neutral, k, elo_final, form_final):
+def _build_matchup_frames(home, away, neutral, k, elo_final, form_final, played=None):
     eh, ea = elo_final.get(home, ELO_INIT), elo_final.get(away, ELO_INIT)
     fh = form_final.get(home, (GMEAN, GMEAN))
     fa = form_final.get(away, (GMEAN, GMEAN))
     is_home_adv = 0 if neutral else 1
+
+    # Use real H2H when played DataFrame is available; fall back to neutral
+    # defaults only for pairs with zero recorded history.
+    # team_days_since is left at 7 in both cases — genuinely unknowable for
+    # a hypothetical or future fixture without a confirmed kickoff date.
+    if played is not None:
+        h2h_data = _get_h2h(home, away, played, n=5)
+        n_h2h = h2h_data["n_meetings"]
+        if n_h2h > 0:
+            hw, dr = h2h_data["home_wins"], h2h_data["draws"]
+            h2h_wr_h = hw / n_h2h
+            h2h_dr   = dr / n_h2h
+            h2h_gd_h = sum(m["home_score"] - m["away_score"]
+                           for m in h2h_data["meetings"]) / n_h2h
+        else:
+            h2h_wr_h = h2h_dr = 0.33
+            h2h_gd_h = 0.0
+    else:
+        h2h_wr_h = h2h_dr = 0.33
+        h2h_gd_h = 0.0
+
     Xh = pd.DataFrame([{
         'elo_diff': eh - ea,
         'team_gf': fh[0], 'team_ga': fh[1],
         'opp_gf': fa[0], 'opp_ga': fa[1],
-        'h2h_win_rate': 0.33, 'h2h_draw_rate': 0.33, 'h2h_avg_goal_diff': 0.0,
+        'h2h_win_rate': h2h_wr_h, 'h2h_draw_rate': h2h_dr,
+        'h2h_avg_goal_diff': h2h_gd_h,
         'team_days_since': 7, 'opp_days_since': 7,
         'is_home_adv': is_home_adv, 'k': k
     }])
@@ -397,7 +419,9 @@ def _build_matchup_frames(home, away, neutral, k, elo_final, form_final):
         'elo_diff': ea - eh,
         'team_gf': fa[0], 'team_ga': fa[1],
         'opp_gf': fh[0], 'opp_ga': fh[1],
-        'h2h_win_rate': 0.33, 'h2h_draw_rate': 0.33, 'h2h_avg_goal_diff': 0.0,
+        'h2h_win_rate': 1 - h2h_wr_h - h2h_dr,   # away's win rate
+        'h2h_draw_rate': h2h_dr,
+        'h2h_avg_goal_diff': -h2h_gd_h,            # flip perspective
         'team_days_since': 7, 'opp_days_since': 7,
         'is_home_adv': 0, 'k': k
     }])
@@ -611,6 +635,8 @@ def predict_future(gbm, feat, rho=0.0):
         entry = dict(
             home=row.home_team, away=row.away_team,
             lam_home=round(float(lh), 2), lam_away=round(float(la), 2),
+            home_elo=round(float(row.home_elo_pre), 1),
+            away_elo=round(float(row.away_elo_pre), 1),
             model_H=round(ph*100, 1), model_D=round(pdraw*100, 1), model_A=round(pa*100, 1),
             market_H=mkt.get("H"), market_D=mkt.get("D"), market_A=mkt.get("A"),
             most_likely_score=f"{i}-{j}", p_most_likely=round(float(M[i, j])*100, 1),
@@ -631,6 +657,159 @@ def predict_future(gbm, feat, rho=0.0):
 
 
 # ============================================================
+# FORM ANALYSIS + H2H + MATCH PREVIEW
+# ============================================================
+def _get_h2h(home, away, played, n=5):
+    mask = (
+        ((played["home_team"] == home) & (played["away_team"] == away)) |
+        ((played["home_team"] == away) & (played["away_team"] == home))
+    )
+    h2h = played[mask].sort_values("date").tail(n)
+    if h2h.empty:
+        return {"n_meetings": 0, "home_wins": 0, "draws": 0, "away_wins": 0, "meetings": []}
+    home_wins = draws = away_wins = 0
+    meetings = []
+    for _, row in h2h.iterrows():
+        if row["home_team"] == home:
+            hs, as_ = int(row["home_score"]), int(row["away_score"])
+        else:
+            hs, as_ = int(row["away_score"]), int(row["home_score"])
+        if hs > as_:
+            home_wins += 1
+        elif hs == as_:
+            draws += 1
+        else:
+            away_wins += 1
+        meetings.append({"date": row["date"].strftime("%Y-%m-%d"), "home_score": hs, "away_score": as_})
+    return {"n_meetings": len(h2h), "home_wins": home_wins, "draws": draws, "away_wins": away_wins, "meetings": meetings}
+
+
+def get_team_form(team_name, played_df, n=10, elo_final=None):
+    """Return form stats for the n most recent matches involving team_name."""
+    mask = (played_df["home_team"] == team_name) | (played_df["away_team"] == team_name)
+    team_matches = played_df[mask].sort_values("date").tail(n)
+
+    current_elo = round(float(elo_final.get(team_name, ELO_INIT)), 1) if elo_final else None
+
+    if team_matches.empty:
+        return {
+            "result_string": "", "avg_goals_for": None, "avg_goals_against": None,
+            "points_per_game": None, "current_elo": current_elo, "elo_n_ago": None,
+            "elo_trend": "stable", "n_matches": 0, "last_5": [],
+        }
+
+    records = []
+    for _, row in team_matches.iterrows():
+        is_home = row["home_team"] == team_name
+        if is_home:
+            gf, ga = int(row["home_score"]), int(row["away_score"])
+            opponent, venue = row["away_team"], ("N" if row["neutral"] else "H")
+            team_elo_pre = float(row["home_elo_pre"])
+        else:
+            gf, ga = int(row["away_score"]), int(row["home_score"])
+            opponent, venue = row["home_team"], ("N" if row["neutral"] else "A")
+            team_elo_pre = float(row["away_elo_pre"])
+        result = "W" if gf > ga else ("D" if gf == ga else "L")
+        records.append({"opponent": opponent, "venue": venue, "goals_for": gf, "goals_against": ga,
+                        "result": result, "date": row["date"].strftime("%Y-%m-%d"),
+                        "score": f"{gf}-{ga}", "team_elo_pre": team_elo_pre})
+
+    result_string = "".join(r["result"] for r in records)
+    avg_gf = round(float(np.mean([r["goals_for"] for r in records])), 2)
+    avg_ga = round(float(np.mean([r["goals_against"] for r in records])), 2)
+    pts = {"W": 3, "D": 1, "L": 0}
+    ppg = round(float(np.mean([pts[r["result"]] for r in records])), 2)
+
+    elo_n_ago = round(records[0]["team_elo_pre"], 1)
+    elo_now = current_elo if current_elo is not None else round(records[-1]["team_elo_pre"], 1)
+    elo_diff = elo_now - elo_n_ago
+    trend = "rising" if elo_diff > 20 else ("falling" if elo_diff < -20 else "stable")
+
+    # Consecutive non-losses counting backward from most recent match
+    current_streak = 0
+    for r in reversed(result_string):
+        if r != "L":
+            current_streak += 1
+        else:
+            break
+
+    last_5 = [{"opponent": r["opponent"], "score": r["score"], "result": r["result"], "date": r["date"]}
+               for r in records[-5:]]
+
+    return {
+        "result_string": result_string, "avg_goals_for": avg_gf, "avg_goals_against": avg_ga,
+        "points_per_game": ppg, "current_elo": elo_now, "elo_n_ago": elo_n_ago,
+        "elo_trend": trend, "n_matches": len(records), "current_streak": current_streak,
+        "last_5": last_5,
+    }
+
+
+def generate_match_preview(home, away, played, precomputed_matchup, elo_final=None):
+    """Compose a 3-5 sentence preview using ALREADY-COMPUTED matchup values.
+
+    precomputed_matchup must contain: p_home, p_draw, p_away, home_elo, away_elo,
+    most_likely_score, p_most_likely. For knockout matches also: is_knockout,
+    p_home_advances, p_away_advances.
+
+    Never calls predict_matchup() internally — all probability/lambda values come
+    from the caller's already-computed result so every display site shows identical
+    numbers.
+    """
+    home_form = get_team_form(home, played, n=10, elo_final=elo_final)
+    away_form = get_team_form(away, played, n=10, elo_final=elo_final)
+    h2h = _get_h2h(home, away, played)
+    m = precomputed_matchup
+
+    def _form_sentence(team, form):
+        n = form["n_matches"]
+        if n == 0:
+            return f"{team} have limited recent match history in the dataset."
+        rs = form["result_string"]
+        wins, draws, losses = rs.count("W"), rs.count("D"), rs.count("L")
+        unbeaten_rate = wins + draws
+        gf, ga = form["avg_goals_for"], form["avg_goals_against"]
+        streak = form["current_streak"]
+        if streak == unbeaten_rate and streak > 0:
+            desc = f"on a {streak}-game unbeaten run"
+        else:
+            desc = f"{wins}W-{draws}D-{losses}L in their last {n}"
+        return f"{team} arrive {desc}, averaging {gf:.1f} scored and {ga:.1f} conceded per match."
+
+    sentences = [_form_sentence(home, home_form), _form_sentence(away, away_form)]
+
+    if h2h["n_meetings"] > 0:
+        n, hw, d, aw = h2h["n_meetings"], h2h["home_wins"], h2h["draws"], h2h["away_wins"]
+        parts = []
+        if hw: parts.append(f"{home} won {hw}")
+        if d: parts.append(f"drawn {d}")
+        if aw: parts.append(f"{away} won {aw}")
+        sentences.append(f"In their last {n} meeting{'s' if n > 1 else ''}, {', '.join(parts)}.")
+    else:
+        sentences.append(f"No previous meetings between {home} and {away} are recorded in the dataset.")
+
+    elo_diff = m["home_elo"] - m["away_elo"]
+    if abs(elo_diff) < 50:
+        elo_desc = f"teams closely matched on Elo ({m['home_elo']:.0f} vs {m['away_elo']:.0f})"
+    elif elo_diff > 0:
+        elo_desc = f"{home} holding a {elo_diff:.0f}-point Elo edge ({m['home_elo']:.0f} vs {m['away_elo']:.0f})"
+    else:
+        elo_desc = f"{away} holding a {abs(elo_diff):.0f}-point Elo edge ({m['away_elo']:.0f} vs {m['home_elo']:.0f})"
+    sentences.append(
+        f"The model gives {home} a {m['p_home']}% win probability, draw {m['p_draw']}%, "
+        f"{away} {m['p_away']}%, with {elo_desc}; "
+        f"most likely scoreline is {m['most_likely_score']} ({m['p_most_likely']}%)."
+    )
+
+    if m.get("is_knockout"):
+        sentences.append(
+            f"Factoring in extra time and a potential penalty shootout, {home} have a "
+            f"{m['p_home_advances']}% chance of advancing versus {m['p_away_advances']}% for {away}."
+        )
+
+    return " ".join(sentences)
+
+
+# ============================================================
 # FULL PIPELINE — one call, returns everything a UI needs
 # ============================================================
 def run_pipeline(force_refresh=False):
@@ -643,4 +822,5 @@ def run_pipeline(force_refresh=False):
     preds = predict_future(gbm, feat, rho=rho)
     teams = sorted(elo_final.keys())
     return dict(gbm=gbm, elo_final=elo_final, form_final=form_final, teams=teams,
-                backtest=bt, predictions=preds, n_matches=len(played), rho=rho)
+                backtest=bt, predictions=preds, n_matches=len(played), rho=rho,
+                played=played)
