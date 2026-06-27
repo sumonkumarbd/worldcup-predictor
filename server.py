@@ -158,7 +158,8 @@ if __name__ == "__main__":
         if _state["error"]:
             print("Startup error:", _state["error"])
         threading.Thread(target=_background_loop, daemon=True).start()
-        app.run(host="0.0.0.0", port=5000, debug=False)
     except KeyboardInterrupt:
         print("\nShutting down — nothing left running.")
         sys.exit(0)
+    app.run(host="0.0.0.0", port=5000, debug=False)
+    print("\nShutting down — nothing left running.")
