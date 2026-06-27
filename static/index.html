@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>World Cup Predictor</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap');
+  :root{
+    --bg:#0A0E12; --surface:#121820; --surface-2:#1A222B; --border:#232C36;
+    --green:#2F9E5B; --green-bright:#5FD88F; --amber:#F4B731; --violet:#9B7EDE; --red:#E5484D;
+    --text:#F2F4F6; --text-dim:#8B96A3;
+    --font-display:'Bebas Neue',sans-serif; --font-body:'Inter',system-ui,sans-serif; --font-mono:'IBM Plex Mono',monospace;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font-body);}
+  button,select{font-family:inherit;color:inherit;}
+  :focus-visible{outline:2px solid var(--green-bright);outline-offset:2px;}
+  .wrap{max-width:980px;margin:0 auto;padding:0 20px 60px;}
+
+  .topbar{display:flex;justify-content:space-between;align-items:center;padding:20px 0;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:10px;}
+  .topbar h1{font-family:var(--font-display);font-size:26px;letter-spacing:.04em;margin:0;}
+  .status{display:flex;align-items:center;gap:10px;font-family:var(--font-mono);font-size:11px;color:var(--text-dim);}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--green-bright);}
+  .dot.refreshing{background:var(--amber);animation:pulse 1.2s infinite;}
+  @keyframes pulse{0%{opacity:1;}50%{opacity:.3;}100%{opacity:1;}}
+  .btn{background:var(--surface-2);border:1px solid var(--border);color:var(--text);padding:8px 14px;border-radius:8px;font-size:12px;cursor:pointer;font-family:var(--font-mono);}
+  .btn:hover{border-color:var(--green-bright);}
+  .btn:disabled{opacity:.5;cursor:default;}
+
+  section{margin-top:32px;}
+  h2{font-family:var(--font-display);font-size:20px;letter-spacing:.03em;margin:0 0 14px;}
+  .sub{font-size:12px;color:var(--text-dim);margin:-10px 0 16px;}
+
+  .verdict-row{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;}
+  .stamp{flex:1;min-width:160px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;}
+  .stamp .label{font-size:11px;color:var(--text-dim);margin-bottom:6px;}
+  .stamp .val{font-family:var(--font-mono);font-size:18px;font-weight:600;}
+  .badge{display:inline-block;font-family:var(--font-mono);font-size:11px;font-weight:600;padding:3px 9px;border-radius:5px;letter-spacing:.04em;}
+  .badge.pass{background:rgba(95,216,143,.18);color:var(--green-bright);}
+  .badge.fail{background:rgba(229,72,77,.18);color:var(--red);}
+  .crit-list{list-style:none;padding:0;margin:0;font-size:13px;display:flex;flex-direction:column;gap:8px;}
+  .crit-list li{display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid var(--border);padding-bottom:8px;}
+  .note{background:var(--surface);border-left:3px solid var(--violet);border-radius:0 8px 8px 0;padding:12px 16px;font-size:13px;color:var(--text-dim);line-height:1.5;margin-top:14px;}
+
+  .pred-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;}
+  .pred-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;}
+  .pred-teams{font-family:var(--font-display);font-size:18px;margin-bottom:10px;}
+  .bar-row{margin-bottom:10px;}
+  .bar-row .lbls{display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:11px;color:var(--text-dim);margin-bottom:4px;}
+  .tri-bar{display:flex;height:6px;border-radius:4px;overflow:hidden;background:var(--border);}
+  .tri-bar div:nth-child(1){background:var(--green);} .tri-bar div:nth-child(2){background:var(--text-dim);opacity:.4;} .tri-bar div:nth-child(3){background:var(--amber);}
+  .adv-bar{display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--border);}
+  .adv-bar div:nth-child(1){background:var(--violet);} .adv-bar div:nth-child(2){background:var(--amber);}
+  .adv-label{font-size:10px;letter-spacing:.06em;color:var(--violet);font-family:var(--font-mono);font-weight:600;margin-bottom:3px;}
+  .heat{display:grid;grid-template-columns:repeat(6,1fr);gap:2px;margin-top:12px;width:120px;}
+  .heat div{aspect-ratio:1;border-radius:2px;font-size:8px;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);}
+  .most-likely{font-family:var(--font-mono);font-size:11px;color:var(--text-dim);margin-top:10px;}
+  .explanation-block{margin-top:12px;font-size:13px;line-height:1.5;color:var(--text-dim);}
+  .explanation-block span{display:inline-block;margin-right:0.5rem;}
+  .explanation-block .positive{color:var(--green-bright);}
+  .explanation-block .negative{color:var(--red);}
+
+  .explore{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px;}
+  .explore-controls{display:flex;gap:10px;flex-wrap:wrap;align-items:end;}
+  .field{display:flex;flex-direction:column;gap:5px;}
+  .field label{font-size:11px;color:var(--text-dim);}
+  select{background:var(--surface-2);border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:8px;font-size:13px;min-width:150px;}
+  .explore-result{margin-top:20px;display:flex;gap:24px;flex-wrap:wrap;}
+  .result-stats{flex:1;min-width:220px;}
+  .elo-row{display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:12px;color:var(--text-dim);margin-bottom:14px;}
+  footer{margin-top:40px;font-size:11px;color:var(--text-dim);line-height:1.6;border-top:1px solid var(--border);padding-top:16px;}
+  .loading{color:var(--text-dim);font-size:13px;font-family:var(--font-mono);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <h1>WORLD CUP PREDICTOR</h1>
+    <div class="status">
+      <span class="dot" id="statusDot"></span>
+      <span id="statusText">loading…</span>
+      <button class="btn" id="refreshBtn" onclick="triggerRefresh()">Refresh now</button>
+    </div>
+  </div>
+
+  <section>
+    <h2>Backtest verdict</h2>
+    <div class="sub">2,610 held-out matches, 2024–2026 — trained only on data before 2024.</div>
+    <div id="verdictBox" class="loading">Loading backtest…</div>
+  </section>
+
+  <section>
+    <h2>Upcoming fixtures</h2>
+    <div class="sub">Model vs. real market-implied odds, full scoreline distribution per match.</div>
+    <div id="predGrid" class="loading">Loading predictions…</div>
+  </section>
+
+  <section>
+    <h2>Explore any matchup</h2>
+    <div class="sub">Uses each team's current Elo + last-10-match form. Not limited to the 6 fixtures above.</div>
+    <div class="explore">
+      <div class="explore-controls">
+        <div class="field"><label>Home team</label><select id="homeSel"></select></div>
+        <div class="field"><label>Away team</label><select id="awaySel"></select></div>
+        <div class="field"><label>Venue</label>
+          <select id="neutralSel"><option value="true">Neutral</option><option value="false">Home advantage</option></select>
+        </div>
+        <div class="field"><label>Stakes</label>
+          <select id="kSel">
+            <option value="20">Friendly</option><option value="30">Qualifier</option>
+            <option value="40">Continental championship</option><option value="60" selected>World Cup</option>
+          </select>
+        </div>
+        <button class="btn" onclick="runMatchup()">Predict</button>
+      </div>
+      <div id="exploreResult"></div>
+    </div>
+  </section>
+
+  <footer>
+    Elo (tournament-weighted) + gradient-boosted Poisson regression on expected goals → independent-Poisson
+    scoreline matrix. Backtest log-loss is statistically tied with a simple Elo-only baseline (95% CI spans
+    zero) — this system isn't proven more <em>accurate</em> at calling win/draw/loss, but it's well-calibrated
+    and it's the only one of the two that produces a full scoreline distribution. No squad/lineup data is used.
+  </footer>
+</div>
+
+<script>
+const fmtAgo = iso => {
+  if(!iso) return 'never';
+  const s = Math.floor((Date.now() - new Date(iso))/1000);
+  if(s<60) return s+'s ago';
+  if(s<3600) return Math.floor(s/60)+'m ago';
+  return Math.floor(s/3600)+'h ago';
+};
+
+function heatCell(v, max){
+  const t = max>0 ? v/max : 0;
+  const g = Math.round(40 + t*100);
+  return `background:rgb(${30+t*20},${60+g},${60+t*40});color:${t>0.55?'#0A0E12':'#8B96A3'}`;
+}
+
+function renderHeat(matrix){
+  const flat = matrix.flat();
+  const max = Math.max(...flat);
+  let html = '';
+  for(let i=0;i<6;i++) for(let j=0;j<6;j++){
+    const v = matrix[i][j];
+    html += `<div style="${heatCell(v,max)}" title="${i}-${j}: ${(v*100).toFixed(1)}%">${Math.round(v*100)}</div>`;
+  }
+  return html;
+}
+
+async function loadStatus(){
+  const r = await fetch('/api/status'); const d = await r.json();
+  document.getElementById('statusDot').className = 'dot' + (d.is_refreshing?' refreshing':'');
+  document.getElementById('statusText').textContent = d.is_refreshing
+    ? 'refreshing…' : `${d.n_matches ?? '–'} matches · updated ${fmtAgo(d.last_refreshed)}`;
+  document.getElementById('refreshBtn').disabled = d.is_refreshing;
+  return d;
+}
+
+async function loadBacktest(){
+  const r = await fetch('/api/backtest'); if(!r.ok) return;
+  const b = await r.json();
+  const crit = (label, ok) => `<li><span>${label}</span><span class="badge ${ok?'pass':'fail'}">${ok?'PASS':'FAIL'}</span></li>`;
+  document.getElementById('verdictBox').innerHTML = `
+    <div class="verdict-row">
+      <div class="stamp"><div class="label">Model log-loss</div><div class="val">${b.ll_model}</div></div>
+      <div class="stamp"><div class="label">Elo-only baseline</div><div class="val">${b.ll_base}</div></div>
+      <div class="stamp"><div class="label">No-info floor</div><div class="val">${b.ll_floor}</div></div>
+      <div class="stamp"><div class="label">Calibration error</div><div class="val">${b.cal_err}</div></div>
+    </div>
+    <ul class="crit-list">
+      ${crit('Beats Elo-only baseline (statistically significant, CI excludes zero)', b.crit_a)}
+      ${crit('Calibration error ≤ 0.08', b.crit_b)}
+      ${crit('Beats no-information floor by ≥3%', b.crit_c)}
+    </ul>
+    <div class="note">
+      Overall: <span class="badge ${b.overall?'pass':'fail'}">${b.overall?'PASS':'FAIL'}</span> on the
+      pre-committed criteria. Bootstrap 95% CI for (model − baseline) log-loss: [${b.ci_lo}, ${b.ci_hi}]
+      ${b.gap_significant ? '— a real gap.' : '— spans zero, i.e. not statistically distinguishable from noise.'}
+    </div>`;
+}
+
+async function loadPredictions(){
+  const r = await fetch('/api/predictions'); if(!r.ok) return;
+  const preds = await r.json();
+  document.getElementById('predGrid').innerHTML = `<div class="pred-grid">` + preds.map(p => `
+    <div class="pred-card">
+      <div class="pred-teams">${p.home} vs ${p.away}</div>
+      <div class="bar-row">
+        <div class="lbls"><span>Model</span><span>${p.model_H}% / ${p.model_D}% / ${p.model_A}%</span></div>
+        <div class="tri-bar"><div style="width:${p.model_H}%"></div><div style="width:${p.model_D}%"></div><div style="width:${p.model_A}%"></div></div>
+      </div>
+      ${p.market_H!=null ? `<div class="bar-row">
+        <div class="lbls"><span>Market</span><span>${p.market_H}% / ${p.market_D}% / ${p.market_A}%</span></div>
+        <div class="tri-bar"><div style="width:${p.market_H}%"></div><div style="width:${p.market_D}%"></div><div style="width:${p.market_A}%"></div></div>
+      </div>` : ''}
+      ${p.is_knockout ? `<div class="bar-row" style="margin-top:12px">
+        <div class="adv-label">ADVANCES (incl. ET + pens)</div>
+        <div class="lbls"><span>${p.home}</span><span>${p.away}</span></div>
+        <div class="lbls"><span style="color:var(--violet)">${p.p_home_advances}%</span><span style="color:var(--amber)">${p.p_away_advances}%</span></div>
+        <div class="adv-bar"><div style="width:${p.p_home_advances}%"></div><div style="width:${p.p_away_advances}%"></div></div>
+      </div>` : ''}
+      <div class="heat">${renderHeat(p.matrix)}</div>
+      <div class="most-likely">Most likely: ${p.most_likely_score} (${p.p_most_likely}%) · λ ${p.lam_home}–${p.lam_away}</div>
+      <div class="explanation-block">
+        <div><span class="positive">${p.home_explanation}</span></div>
+        <div><span class="negative">${p.away_explanation}</span></div>
+      </div>
+    </div>`).join('') + `</div>`;
+}
+
+async function loadTeams(){
+  const r = await fetch('/api/teams'); const teams = await r.json();
+  for(const sel of [document.getElementById('homeSel'), document.getElementById('awaySel')]){
+    sel.innerHTML = teams.map(t => `<option value="${t}">${t}</option>`).join('');
+  }
+  document.getElementById('homeSel').value = 'Argentina';
+  document.getElementById('awaySel').value = 'Brazil';
+}
+
+async function runMatchup(){
+  const home = document.getElementById('homeSel').value, away = document.getElementById('awaySel').value;
+  const neutral = document.getElementById('neutralSel').value, k = document.getElementById('kSel').value;
+  if(home === away){ document.getElementById('exploreResult').innerHTML = '<div class="note">Pick two different teams.</div>'; return; }
+  const r = await fetch(`/api/matchup?home=${encodeURIComponent(home)}&away=${encodeURIComponent(away)}&neutral=${neutral}&k=${k}`);
+  const m = await r.json();
+  if(m.error){ document.getElementById('exploreResult').innerHTML = `<div class="note">${m.error}</div>`; return; }
+  document.getElementById('exploreResult').innerHTML = `
+    <div class="explore-result">
+      <div class="result-stats">
+        <div class="elo-row"><span>${m.home} Elo: ${m.home_elo}</span><span>${m.away} Elo: ${m.away_elo}</span></div>
+        <div class="bar-row">
+          <div class="lbls"><span>H / D / A</span><span>${m.p_home}% / ${m.p_draw}% / ${m.p_away}%</span></div>
+          <div class="tri-bar"><div style="width:${m.p_home}%"></div><div style="width:${m.p_draw}%"></div><div style="width:${m.p_away}%"></div></div>
+        </div>
+        <div class="most-likely">Most likely: ${m.most_likely_score} (${m.p_most_likely}%) · expected goals λ ${m.lam_home}–${m.lam_away}</div>
+        ${m.is_knockout ? `<div class="bar-row" style="margin-top:12px">
+          <div class="adv-label">ADVANCES (incl. ET + pens)</div>
+          <div class="lbls"><span>${m.home}</span><span>${m.away}</span></div>
+          <div class="lbls"><span style="color:var(--violet)">${m.p_home_advances}%</span><span style="color:var(--amber)">${m.p_away_advances}%</span></div>
+          <div class="adv-bar"><div style="width:${m.p_home_advances}%"></div><div style="width:${m.p_away_advances}%"></div></div>
+        </div>` : ''}
+        <div class="explanation-block">
+          <div><span class="positive">${m.home_explanation}</span></div>
+          <div><span class="negative">${m.away_explanation}</span></div>
+        </div>
+      </div>
+      <div class="heat">${renderHeat(m.matrix)}</div>
+    </div>`;
+}
+
+async function triggerRefresh(){
+  await fetch('/api/refresh', {method:'POST'});
+  poll();
+}
+
+async function poll(){
+  const s = await loadStatus();
+  if(s.is_refreshing){ setTimeout(poll, 2000); return; }
+  await Promise.all([loadBacktest(), loadPredictions()]);
+}
+
+(async function init(){
+  await poll();
+  await loadTeams();
+  setInterval(loadStatus, 15000);
+})();
+</script>
+</body>
+</html>

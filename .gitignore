@@ -1,0 +1,6 @@
+venv/
+__pycache__/
+*.pyc
+.tmp_live_output/
+.tmp_test_env/
+server.log
