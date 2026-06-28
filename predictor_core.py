@@ -280,22 +280,14 @@ def advancement_probability(lam_home, lam_away, elo_diff_pre, rho=0.0):
     return p_home_adv, p_away_adv
 
 
-def predict_matchup(gbm, elo_final, form_final, home, away, neutral=True, k=60, rho=0.0, is_knockout=False):
-    """Predict any arbitrary matchup using each team's CURRENT rating/form."""
+def predict_matchup(gbm, elo_final, form_final, home, away, neutral=True, k=60, rho=0.0, is_knockout=False, played=None):
+    """Predict any arbitrary matchup using each team's CURRENT rating/form.
+
+    played: if provided, real H2H stats are looked up from the historical DataFrame
+    instead of using the neutral 0.33/0.33/0.0 defaults.
+    """
     eh, ea = elo_final.get(home, ELO_INIT), elo_final.get(away, ELO_INIT)
-    gf_h, ga_h = form_final.get(home, (GMEAN, GMEAN))
-    gf_a, ga_a = form_final.get(away, (GMEAN, GMEAN))
-    is_home_adv = 0 if neutral else 1
-    Xh = pd.DataFrame([{"elo_diff": eh - ea, "team_gf": gf_h, "team_ga": ga_h,
-                         "opp_gf": gf_a, "opp_ga": ga_a, "h2h_win_rate": 0.33,
-                         "h2h_draw_rate": 0.33, "h2h_avg_goal_diff": 0.0,
-                         "team_days_since": 7, "opp_days_since": 7,
-                         "is_home_adv": is_home_adv, "k": k}])
-    Xa = pd.DataFrame([{"elo_diff": ea - eh, "team_gf": gf_a, "team_ga": ga_a,
-                         "opp_gf": gf_h, "opp_ga": ga_h, "h2h_win_rate": 0.33,
-                         "h2h_draw_rate": 0.33, "h2h_avg_goal_diff": 0.0,
-                         "team_days_since": 7, "opp_days_since": 7,
-                         "is_home_adv": 0, "k": k}])
+    Xh, Xa = _build_matchup_frames(home, away, neutral, k, elo_final, form_final, played=played)
     lam_h = float(gbm.predict(Xh[FEATS])[0])
     lam_a = float(gbm.predict(Xa[FEATS])[0])
     M = scoreline_matrix(lam_h, lam_a, rho=rho)
@@ -428,8 +420,8 @@ def _build_matchup_frames(home, away, neutral, k, elo_final, form_final, played=
     return Xh, Xa
 
 
-def explain_matchup(gbm, elo_final, form_final, home, away, neutral=True, k=60, rho=0.0, n_top=3):
-    Xh, Xa = _build_matchup_frames(home, away, neutral, k, elo_final, form_final)
+def explain_matchup(gbm, elo_final, form_final, home, away, neutral=True, k=60, rho=0.0, n_top=3, played=None):
+    Xh, Xa = _build_matchup_frames(home, away, neutral, k, elo_final, form_final, played=played)
     explainer = shap.TreeExplainer(gbm)
     shap_h_vals = explainer.shap_values(Xh[FEATS])
     shap_a_vals = explainer.shap_values(Xa[FEATS])

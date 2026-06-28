@@ -177,8 +177,8 @@ def matchup():
         return jsonify(error="home and away are required"), 400
     if home == away:
         return jsonify(error="pick two different teams"), 400
-    result = pc.predict_matchup(d["gbm"], d["elo_final"], d["form_final"], home, away, neutral=neutral, k=k, rho=d.get("rho", 0.0), is_knockout=is_knockout)
-    explanation = pc.explain_matchup(d["gbm"], d["elo_final"], d["form_final"], home, away, neutral=neutral, k=k, rho=d.get("rho", 0.0))
+    result = pc.predict_matchup(d["gbm"], d["elo_final"], d["form_final"], home, away, neutral=neutral, k=k, rho=d.get("rho", 0.0), is_knockout=is_knockout, played=d["played"])
+    explanation = pc.explain_matchup(d["gbm"], d["elo_final"], d["form_final"], home, away, neutral=neutral, k=k, rho=d.get("rho", 0.0), played=d["played"])
     result["home_explanation"] = explanation["home_explanation"]
     result["away_explanation"] = explanation["away_explanation"]
     hf = pc.get_team_form(home, d["played"], n=10, elo_final=d["elo_final"])
