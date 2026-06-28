@@ -443,6 +443,18 @@ Note: England's form sentence uses rate language ("7W-2D-1L in their last 10")
 in all three cases — confirming the Phase 6.5 streak fix is active, since
 England's current_streak (4) ≠ unbeaten_rate (9).
 
+## Phase 8 — Extended form stats (StatsBomb coverage check → UI upgrade)
+
+**Attempt:** per-team last-10-match averages for fouls, cards, passes, throw-ins, and corners, extending `get_team_form()` using the StatsBomb open-data fetch and team-name-mapping infrastructure from Phase 6.
+
+**Pre-committed gate:** average StatsBomb coverage across the 12 current fixture teams must be ≥ 4/10 matches before building anything user-facing.
+
+**Result: 0/10 for every team. Gate not met — stopped as committed.**
+
+The root cause is structural: StatsBomb's open-data repository ends at the 2024 Copa América (through 15 July 2024). Every one of the 12 current teams' last-10 matches falls between October 2025 and June 2026 — entirely outside the available window. The wrong fuzzy matches surfaced during the name-mapping pass illustrate concretely why the gate exists: Austria matched to "Australia," Armenia matched to "Argentina," Faroe Islands matched to "Cape Verde Islands," and Jordan/Uzbekistan matched nothing at all. Even if a handful of 2025–26 matches had appeared in the index, these mis-mappings would have silently poisoned the coverage count.
+
+**What was built instead:** `get_team_form()` already returns `avg_goals_for`, `avg_goals_against`, `points_per_game`, and `elo_trend` with full coverage (results.csv, all teams, all matches). These were surfaced in the UI: both `/api/predictions` and `/api/matchup` now include `home_form_stats` / `away_form_stats` dicts, and the dashboard replaces the previous single-row "Form: WWLDL" badge with a two-column block showing the W/D/L string plus trend arrow (↑/→/↓), GF/GA averages, and points-per-game — all drawn from full-coverage data, no caveats needed.
+
 ## Files in this delivery
 - `predictor_core.py` — full pipeline (data, Elo, features, model, Dixon-Coles,
   knockout/shootout layer, SHAP explanations)

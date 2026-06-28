@@ -372,6 +372,24 @@ def _feature_reason(feature, impact, raw_value=None):
     return f'{negative_phrase} ({fmt})'
 
 
+def _feature_explanation_item(feature, impact, raw_value=None):
+    """Structured {label, pct, direction} for one SHAP feature — same sign logic as _feature_reason."""
+    _, positive_phrase, negative_phrase = FEATURE_EXPLANATIONS.get(feature, (feature, feature, feature))
+    pct = _shap_pct_effect(impact)
+    raw_positive = _raw_direction_positive(feature, raw_value)
+    if raw_positive is not None:
+        is_positive = raw_positive
+    elif feature == 'is_home_adv':
+        is_positive = impact > 0
+    else:
+        is_positive = impact >= 0
+    return {
+        "label":     positive_phrase if is_positive else negative_phrase,
+        "pct":       round(pct, 1),
+        "direction": "positive" if is_positive else "negative",
+    }
+
+
 def _build_matchup_frames(home, away, neutral, k, elo_final, form_final, played=None):
     eh, ea = elo_final.get(home, ELO_INIT), elo_final.get(away, ELO_INIT)
     fh = form_final.get(home, (GMEAN, GMEAN))
@@ -436,21 +454,23 @@ def explain_matchup(gbm, elo_final, form_final, home, away, neutral=True, k=60, 
         raw_row = X.iloc[0].to_dict()
         impacts = [(feature, shap_arr[idx], raw_row) for idx, feature in enumerate(FEATS)]
         impacts.sort(key=lambda x: abs(x[1]), reverse=True)
+        # Collect ALL non-contradicted features (no n_top cap here — JS will filter/slice)
         filtered = []
         for feature, impact, raw_row in impacts:
             raw_value = raw_row.get(feature)
             if _feature_contradicts_raw_direction(feature, impact, raw_value):
                 continue
             filtered.append((feature, impact, raw_row))
-            if len(filtered) >= n_top:
-                break
+        # Sentence uses only top n_top (unchanged behavior)
         top_impacts = filtered[:n_top]
-        parts = [_feature_reason(f, v, raw_row.get(f)) for f, v, raw_row in top_impacts]
+        # Full list so JS can direction-filter and still reach 3 positive reasons
+        all_reasons = [_feature_explanation_item(f, v, rr.get(f)) for f, v, rr in filtered]
+        parts       = [_feature_reason(f, v, rr.get(f))           for f, v, rr in top_impacts]
         score = lam_h if side == 'Home' else lam_a
-        return f"{side} expected goals {score:.2f}: " + ", ".join(parts)
+        return f"{side} expected goals {score:.2f}: " + ", ".join(parts), all_reasons
 
-    home_explanation = format_explanation(shap_h, Xh, 'Home')
-    away_explanation = format_explanation(shap_a, Xa, 'Away')
+    home_explanation, home_reasons = format_explanation(shap_h, Xh, 'Home')
+    away_explanation, away_reasons = format_explanation(shap_a, Xa, 'Away')
 
     home_shap_pct = {f: float(np.expm1(v) * 100.0) for f, v in zip(FEATS, shap_h)}
     away_shap_pct = {f: float(np.expm1(v) * 100.0) for f, v in zip(FEATS, shap_a)}
@@ -463,6 +483,8 @@ def explain_matchup(gbm, elo_final, form_final, home, away, neutral=True, k=60, 
         'away_shap': away_shap_pct,
         'home_explanation': home_explanation,
         'away_explanation': away_explanation,
+        'home_reasons': home_reasons,
+        'away_reasons': away_reasons,
         'base_value': base_value,
     }
 

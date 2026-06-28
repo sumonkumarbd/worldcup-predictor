@@ -112,10 +112,20 @@ def predictions():
             pred["home"], pred["away"],
             neutral=neutral,
             k=k,
-            rho=d.get("rho", 0.0)
+            rho=d.get("rho", 0.0),
+            played=d["played"],
         )
         pred["home_explanation"] = explanation["home_explanation"]
         pred["away_explanation"] = explanation["away_explanation"]
+        pred["home_reasons"]     = explanation["home_reasons"]
+        pred["away_reasons"]     = explanation["away_reasons"]
+        h2h = pc._get_h2h(pred["home"], pred["away"], d["played"], n=5)
+        pred["h2h"] = {
+            "n_meetings": h2h["n_meetings"],
+            "home_wins":  h2h["home_wins"],
+            "draws":      h2h["draws"],
+            "away_wins":  h2h["away_wins"],
+        }
         # Build precomputed dict from the prediction entry so preview uses
         # exactly the same numbers as model_H/D/A — no second predict_matchup call.
         precomputed = {
@@ -137,6 +147,18 @@ def predictions():
         af = pc.get_team_form(pred["away"],  d["played"], n=10, elo_final=d["elo_final"])
         pred["home_form"] = hf["result_string"][-5:]
         pred["away_form"] = af["result_string"][-5:]
+        pred["home_form_stats"] = {
+            "avg_gf": round(hf["avg_goals_for"],    1),
+            "avg_ga": round(hf["avg_goals_against"], 1),
+            "ppg":    round(hf["points_per_game"],   1),
+            "trend":  hf["elo_trend"],
+        }
+        pred["away_form_stats"] = {
+            "avg_gf": round(af["avg_goals_for"],    1),
+            "avg_ga": round(af["avg_goals_against"], 1),
+            "ppg":    round(af["points_per_game"],   1),
+            "trend":  af["elo_trend"],
+        }
         pred.pop("neutral", None)
         pred.pop("k", None)
         # is_knockout / p_home_advances / p_away_advances pass through if present
@@ -181,10 +203,31 @@ def matchup():
     explanation = pc.explain_matchup(d["gbm"], d["elo_final"], d["form_final"], home, away, neutral=neutral, k=k, rho=d.get("rho", 0.0), played=d["played"])
     result["home_explanation"] = explanation["home_explanation"]
     result["away_explanation"] = explanation["away_explanation"]
+    result["home_reasons"]     = explanation["home_reasons"]
+    result["away_reasons"]     = explanation["away_reasons"]
+    h2h = pc._get_h2h(home, away, d["played"], n=5)
+    result["h2h"] = {
+        "n_meetings": h2h["n_meetings"],
+        "home_wins":  h2h["home_wins"],
+        "draws":      h2h["draws"],
+        "away_wins":  h2h["away_wins"],
+    }
     hf = pc.get_team_form(home, d["played"], n=10, elo_final=d["elo_final"])
     af = pc.get_team_form(away, d["played"], n=10, elo_final=d["elo_final"])
     result["home_form"] = hf["result_string"][-5:]
     result["away_form"] = af["result_string"][-5:]
+    result["home_form_stats"] = {
+        "avg_gf": round(hf["avg_goals_for"],    1),
+        "avg_ga": round(hf["avg_goals_against"], 1),
+        "ppg":    round(hf["points_per_game"],   1),
+        "trend":  hf["elo_trend"],
+    }
+    result["away_form_stats"] = {
+        "avg_gf": round(af["avg_goals_for"],    1),
+        "avg_ga": round(af["avg_goals_against"], 1),
+        "ppg":    round(af["points_per_game"],   1),
+        "trend":  af["elo_trend"],
+    }
     # Pass the already-computed result dict — preview reads p_home/p_draw/p_away
     # directly from it, so preview and header numbers are guaranteed identical.
     result["preview"] = pc.generate_match_preview(

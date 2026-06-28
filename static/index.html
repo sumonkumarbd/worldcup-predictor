@@ -16,7 +16,7 @@
   body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font-body);}
   button,select{font-family:inherit;color:inherit;}
   :focus-visible{outline:2px solid var(--green-bright);outline-offset:2px;}
-  .wrap{max-width:980px;margin:0 auto;padding:0 20px 60px;}
+  .wrap{max-width:1800px;margin:0 auto;padding:0 24px 60px;}
 
   .topbar{display:flex;justify-content:space-between;align-items:center;padding:20px 0;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:10px;}
   .topbar h1{font-family:var(--font-display);font-size:26px;letter-spacing:.04em;margin:0;}
@@ -43,7 +43,7 @@
   .crit-list li{display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid var(--border);padding-bottom:8px;}
   .note{background:var(--surface);border-left:3px solid var(--violet);border-radius:0 8px 8px 0;padding:12px 16px;font-size:13px;color:var(--text-dim);line-height:1.5;margin-top:14px;}
 
-  .pred-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;}
+  .pred-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:16px;}
   .pred-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;}
   .pred-teams{font-family:var(--font-display);font-size:18px;margin-bottom:10px;}
   .bar-row{margin-bottom:10px;}
@@ -71,6 +71,28 @@
   .elo-row{display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:12px;color:var(--text-dim);margin-bottom:14px;}
   footer{margin-top:40px;font-size:11px;color:var(--text-dim);line-height:1.6;border-top:1px solid var(--border);padding-top:16px;}
   .loading{color:var(--text-dim);font-size:13px;font-family:var(--font-mono);}
+
+  /* ── match card ────────────────────────────────── */
+  .mc-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;}
+  .mc-teams{font-family:var(--font-display);font-size:20px;}
+  .mc-tag{font-family:var(--font-mono);font-size:10px;font-weight:600;letter-spacing:.06em;color:var(--violet);background:rgba(155,126,222,.15);padding:3px 7px;border-radius:4px;white-space:nowrap;}
+  .mc-headline{text-align:center;padding:6px 0 10px;}
+  .mc-pct-big{font-family:var(--font-display);font-size:50px;color:var(--green-bright);line-height:1.1;}
+  .mc-pct-close{font-family:var(--font-display);font-size:22px;color:var(--amber);}
+  .mc-pct-label{font-size:12px;color:var(--text-dim);margin-top:2px;}
+  .mc-score{font-family:var(--font-mono);font-size:11px;color:var(--text-dim);margin-top:5px;}
+  .mc-divider{border:none;border-top:1px solid var(--border);margin:10px 0;}
+  .mc-two-col{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:10px 0;}
+  .mc-section-label{font-family:var(--font-mono);font-size:9px;font-weight:600;letter-spacing:.1em;color:var(--text-dim);text-transform:uppercase;margin-bottom:6px;}
+  .mc-h2h-note{font-family:var(--font-mono);font-size:11px;color:var(--text-dim);}
+  .mc-h2h-counts{font-family:var(--font-mono);font-size:11px;color:var(--text-dim);margin-top:4px;}
+  .mc-elo-vals{font-family:var(--font-mono);font-size:13px;font-weight:600;margin-bottom:3px;}
+  .mc-elo-edge{font-family:var(--font-mono);font-size:11px;color:var(--text-dim);}
+  .mc-reason{margin-bottom:8px;}
+  .mc-reason-label{font-size:11px;color:var(--text-dim);margin-bottom:3px;}
+  .mc-reason-bar{height:5px;background:var(--border);border-radius:3px;overflow:hidden;}
+  .mc-reason-bar div{height:100%;background:var(--green-bright);border-radius:3px;}
+  .mc-market{font-family:var(--font-mono);font-size:10px;color:var(--text-dim);margin-top:3px;}
 </style>
 </head>
 <body>
@@ -98,7 +120,7 @@
 
   <section>
     <h2>Explore any matchup</h2>
-    <div class="sub">Uses each team's current Elo + last-10-match form. Not limited to the 6 fixtures above.</div>
+    <div class="sub">Uses each team's current Elo + last-10-match form. Not limited to the fixture list above.</div>
     <div class="explore">
       <div class="explore-controls">
         <div class="field"><label>Home team</label><select id="homeSel"></select></div>
@@ -147,6 +169,33 @@ function renderFormBadge(formStr){
   return formStr.split('').map(r=>`<span style="color:${c[r]||'inherit'}">${r}</span>`).join('');
 }
 
+function trendArrow(trend){
+  if(trend==='rising')  return `<span style="color:var(--green-bright)">↑</span>`;
+  if(trend==='falling') return `<span style="color:var(--red)">↓</span>`;
+  return `<span style="color:var(--text-dim)">→</span>`;
+}
+
+function renderFormBlock(hForm, hs, aForm, as_){
+  if(!hs || !as_) return `
+    <div style="display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:11px;color:var(--text-dim);margin-bottom:8px">
+      <span>${renderFormBadge(hForm)}</span><span>${renderFormBadge(aForm)}</span>
+    </div>`;
+  const f = n => Number(n).toFixed(1);
+  return `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 8px;font-family:var(--font-mono);font-size:11px;background:var(--surface-2);border-radius:6px;padding:7px 10px;margin-bottom:10px;">
+      <div>
+        <div style="margin-bottom:3px">${renderFormBadge(hForm)} ${trendArrow(hs.trend)}</div>
+        <div style="color:var(--text-dim)">${f(hs.avg_gf)}GF · ${f(hs.avg_ga)}GA</div>
+        <div style="color:var(--text-dim)">${f(hs.ppg)}pt/gm</div>
+      </div>
+      <div style="text-align:right">
+        <div style="margin-bottom:3px">${trendArrow(as_.trend)} ${renderFormBadge(aForm)}</div>
+        <div style="color:var(--text-dim)">${f(as_.avg_gf)}GF · ${f(as_.avg_ga)}GA</div>
+        <div style="color:var(--text-dim)">${f(as_.ppg)}pt/gm</div>
+      </div>
+    </div>`;
+}
+
 function renderHeat(matrix){
   const flat = matrix.flat();
   const max = Math.max(...flat);
@@ -156,6 +205,160 @@ function renderHeat(matrix){
     html += `<div style="${heatCell(v,max)}" title="${i}-${j}: ${(v*100).toFixed(1)}%">${Math.round(v*100)}</div>`;
   }
   return html;
+}
+
+function renderMatchCard(p) {
+  // Normalize field names: /api/matchup uses p_home/p_draw/p_away; /api/predictions uses model_H/D/A
+  const pH = p.model_H !== undefined ? p.model_H : p.p_home;
+  const pD = p.model_D !== undefined ? p.model_D : p.p_draw;
+  const pA = p.model_A !== undefined ? p.model_A : p.p_away;
+
+  const maxP    = Math.max(pH, pA);
+  const isClose = maxP < 40;
+  const homeWins = pH >= pA;
+  const favored  = homeWins ? p.home : p.away;
+  // Only positive-direction reasons belong under "why the model leans X".
+  // The full reasons list (all non-contradicted features) is already sorted by
+  // abs(pct) desc, so filtering for positive then slicing gives the top-3 positives.
+  const allFavoredReasons = homeWins ? (p.home_reasons || []) : (p.away_reasons || []);
+  const favoredReasons = allFavoredReasons.filter(r => r.direction === 'positive').slice(0, 3);
+
+  // Header team names: favored → green-bright, other → text-dim; both neutral when close
+  const homeNameHtml = isClose
+    ? p.home
+    : (homeWins
+        ? `<span style="color:var(--green-bright)">${p.home}</span>`
+        : `<span style="color:var(--text-dim)">${p.home}</span>`);
+  const awayNameHtml = isClose
+    ? p.away
+    : (homeWins
+        ? `<span style="color:var(--text-dim)">${p.away}</span>`
+        : `<span style="color:var(--green-bright)">${p.away}</span>`);
+
+  // Headline
+  const headlineHtml = isClose
+    ? `<div class="mc-pct-close">Too close to call</div>
+       <div class="mc-score">Most likely: ${p.most_likely_score} (${p.p_most_likely}%)</div>`
+    : `<div class="mc-pct-big">${maxP}%</div>
+       <div class="mc-pct-label">chance ${favored} win</div>
+       <div class="mc-score">Most likely: ${p.most_likely_score} (${p.p_most_likely}%)</div>`;
+
+  // H2H
+  const h2h = p.h2h || {n_meetings:0, home_wins:0, draws:0, away_wins:0};
+  const nm  = h2h.n_meetings;
+  let h2hHtml;
+  if (nm >= 3) {
+    const hw = h2h.home_wins, dr = h2h.draws, aw = h2h.away_wins;
+    const hwP = (hw/nm*100).toFixed(0), drP = (dr/nm*100).toFixed(0), awP = (aw/nm*100).toFixed(0);
+    h2hHtml = `<div class="tri-bar" style="margin-bottom:4px">
+        <div style="width:${hwP}%"></div><div style="width:${drP}%"></div><div style="width:${awP}%"></div>
+      </div>
+      <div class="mc-h2h-counts">${hw}W ${dr}D ${aw}L · ${nm} games</div>`;
+  } else if (nm > 0) {
+    h2hHtml = `<div class="mc-h2h-note">Only ${nm} meeting${nm>1?'s':''} on record</div>`;
+  } else {
+    h2hHtml = `<div class="mc-h2h-note">No meetings on record</div>`;
+  }
+
+  // Strength
+  const eloDiff = (p.home_elo || 0) - (p.away_elo || 0);
+  const stronger = eloDiff > 0 ? p.home : p.away;
+  const strengthHtml = Math.abs(eloDiff) < 50
+    ? `<div class="mc-elo-vals">${p.home_elo} / ${p.away_elo}</div><div class="mc-elo-edge">Evenly matched</div>`
+    : `<div class="mc-elo-vals">${p.home_elo} / ${p.away_elo}</div><div class="mc-elo-edge">${stronger} +${Math.abs(eloDiff).toFixed(0)} Elo</div>`;
+
+  // Why / Why-it's-close — always rendered so every card in a row has the same
+  // structural sections (prevents dead-space gaps from shorter close-match cards).
+  // Bars use fixed absolute scale: +100% SHAP effect = full bar, capped there.
+  let whyTitle, whyContent;
+  if (isClose) {
+    const eloGap = Math.abs(eloDiff);
+    const hppg = p.home_form_stats ? Number(p.home_form_stats.ppg) : null;
+    const appg = p.away_form_stats ? Number(p.away_form_stats.ppg) : null;
+    let sentence;
+    if (eloGap < 50) {
+      sentence = `Elo ratings are separated by only ${eloGap.toFixed(0)} points`;
+      if (hppg !== null && appg !== null) {
+        const ppgDiff = Math.abs(hppg - appg);
+        if (ppgDiff < 0.3) {
+          sentence += `, and recent form is similarly even (${hppg.toFixed(1)} vs ${appg.toFixed(1)} pts/gm).`;
+        } else {
+          const formLeader = hppg > appg ? p.home : p.away;
+          const hi = Math.max(hppg, appg), lo = Math.min(hppg, appg);
+          sentence += `; ${formLeader} holds a slight edge in recent form (${hi.toFixed(1)} vs ${lo.toFixed(1)} pts/gm) but not enough to tip the model toward a clear favourite.`;
+        }
+      } else {
+        sentence += ', with neither side holding a meaningful model edge.';
+      }
+    } else {
+      sentence = `Despite a ${eloGap.toFixed(0)}-point Elo gap, context and form are close enough that neither side clears a 40% win probability.`;
+    }
+    whyTitle   = "Why it's close";
+    whyContent = `<div class="mc-h2h-note" style="line-height:1.65">${sentence}</div>`;
+  } else if (favoredReasons.length === 0) {
+    whyTitle   = `Why the model leans ${favored}`;
+    whyContent = `<div class="mc-h2h-note" style="line-height:1.65">Edge is diffuse — no single factor dominates, but combined inputs consistently favour ${favored}.</div>`;
+  } else {
+    const bars = favoredReasons.map(r => {
+      const w = Math.min(Math.abs(r.pct), 100).toFixed(1);
+      return `<div class="mc-reason">
+        <div class="mc-reason-label">${r.label}</div>
+        <div class="mc-reason-bar"><div style="width:${w}%"></div></div>
+      </div>`;
+    }).join('');
+    whyTitle   = `Why the model leans ${favored}`;
+    whyContent = bars;
+  }
+  // min-height keeps the content area the same height whether there are 3 bars
+  // or just a sentence, so card rows stay visually even.
+  const whyHtml = `<hr class="mc-divider">
+    <div class="mc-section-label" style="margin-bottom:8px">${whyTitle}</div>
+    <div style="min-height:84px">${whyContent}</div>`;
+
+  // Knockout advances
+  let advancesHtml = '';
+  if (p.is_knockout) {
+    advancesHtml = `<hr class="mc-divider">
+      <div class="mc-section-label">If level after 90 minutes</div>
+      <div style="display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:11px;margin-bottom:3px">
+        <span>${p.home}</span><span>${p.away}</span></div>
+      <div style="display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:11px;margin-bottom:5px">
+        <span style="color:var(--violet)">${p.p_home_advances}%</span>
+        <span style="color:var(--amber)">${p.p_away_advances}%</span></div>
+      <div class="adv-bar">
+        <div style="width:${p.p_home_advances}%"></div>
+        <div style="width:${p.p_away_advances}%"></div></div>`;
+  }
+
+  const marketHtml = p.market_H != null
+    ? `<div class="mc-market">Market: ${p.market_H}% / ${p.market_D}% / ${p.market_A}%</div>` : '';
+
+  return `<div class="pred-card">
+    <div class="mc-header">
+      <div class="mc-teams">${homeNameHtml} <span style="color:var(--text-dim)">vs</span> ${awayNameHtml}</div>
+      ${p.is_knockout ? '<span class="mc-tag">ROUND OF 32</span>' : ''}
+    </div>
+    <div class="mc-headline">${headlineHtml}</div>
+    <div class="bar-row" style="margin-bottom:4px">
+      <div class="lbls"><span>H / D / A</span><span>${pH}% / ${pD}% / ${pA}%</span></div>
+      <div class="tri-bar"><div style="width:${pH}%"></div><div style="width:${pD}%"></div><div style="width:${pA}%"></div></div>
+    </div>
+    ${marketHtml}
+    <hr class="mc-divider">
+    ${renderFormBlock(p.home_form, p.home_form_stats, p.away_form, p.away_form_stats)}
+    <div class="mc-two-col">
+      <div>
+        <div class="mc-section-label">Head to head (last 5)</div>
+        ${h2hHtml}
+      </div>
+      <div>
+        <div class="mc-section-label">Strength (Elo)</div>
+        ${strengthHtml}
+      </div>
+    </div>
+    ${whyHtml}
+    ${advancesHtml}
+  </div>`;
 }
 
 async function loadStatus(){
@@ -190,38 +393,30 @@ async function loadBacktest(){
     </div>`;
 }
 
+let _preds = [];
+
+function renderPredGrid(){
+  const sel = document.getElementById('sortSel');
+  const sort = sel ? sel.value : 'kickoff';
+  let sorted = [..._preds];
+  if(sort === 'lopsided') sorted.sort((a,b) => Math.max(b.model_H,b.model_A) - Math.max(a.model_H,a.model_A));
+  if(sort === 'closest')  sorted.sort((a,b) => Math.max(a.model_H,a.model_A) - Math.max(b.model_H,b.model_A));
+  document.getElementById('predGrid').innerHTML =
+    `<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+       <span style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim)">Sort</span>
+       <select id="sortSel" onchange="renderPredGrid()" style="min-width:auto;padding:5px 8px;font-size:11px">
+         <option value="kickoff"${sort==='kickoff'?' selected':''}>Kickoff order</option>
+         <option value="lopsided"${sort==='lopsided'?' selected':''}>Most lopsided</option>
+         <option value="closest"${sort==='closest'?' selected':''}>Closest match</option>
+       </select>
+     </div>
+     <div class="pred-grid">` + sorted.map(p => renderMatchCard(p)).join('') + `</div>`;
+}
+
 async function loadPredictions(){
   const r = await fetch('/api/predictions'); if(!r.ok) return;
-  const preds = await r.json();
-  document.getElementById('predGrid').innerHTML = `<div class="pred-grid">` + preds.map(p => `
-    <div class="pred-card">
-      <div class="pred-teams">${p.home} vs ${p.away}</div>
-      <div style="display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:11px;color:var(--text-dim);margin-bottom:8px">
-        <span>Form: ${renderFormBadge(p.home_form)}</span>
-        <span>Form: ${renderFormBadge(p.away_form)}</span>
-      </div>
-      <div class="bar-row">
-        <div class="lbls"><span>Model</span><span>${p.model_H}% / ${p.model_D}% / ${p.model_A}%</span></div>
-        <div class="tri-bar"><div style="width:${p.model_H}%"></div><div style="width:${p.model_D}%"></div><div style="width:${p.model_A}%"></div></div>
-      </div>
-      ${p.market_H!=null ? `<div class="bar-row">
-        <div class="lbls"><span>Market</span><span>${p.market_H}% / ${p.market_D}% / ${p.market_A}%</span></div>
-        <div class="tri-bar"><div style="width:${p.market_H}%"></div><div style="width:${p.market_D}%"></div><div style="width:${p.market_A}%"></div></div>
-      </div>` : ''}
-      ${p.is_knockout ? `<div class="bar-row" style="margin-top:12px">
-        <div class="adv-label">ADVANCES (incl. ET + pens)</div>
-        <div class="lbls"><span>${p.home}</span><span>${p.away}</span></div>
-        <div class="lbls"><span style="color:var(--violet)">${p.p_home_advances}%</span><span style="color:var(--amber)">${p.p_away_advances}%</span></div>
-        <div class="adv-bar"><div style="width:${p.p_home_advances}%"></div><div style="width:${p.p_away_advances}%"></div></div>
-      </div>` : ''}
-      <div class="heat">${renderHeat(p.matrix)}</div>
-      <div class="most-likely">Most likely: ${p.most_likely_score} (${p.p_most_likely}%) · λ ${p.lam_home}–${p.lam_away}</div>
-      <div class="explanation-block">
-        <div><span class="positive">${p.home_explanation}</span></div>
-        <div><span class="negative">${p.away_explanation}</span></div>
-      </div>
-      ${p.preview ? `<div style="margin-top:10px;font-size:12px;line-height:1.6;color:var(--text-dim);border-top:1px solid var(--border);padding-top:10px">${p.preview}</div>` : ''}
-    </div>`).join('') + `</div>`;
+  _preds = await r.json();
+  renderPredGrid();
 }
 
 async function loadTeams(){
@@ -240,32 +435,9 @@ async function runMatchup(){
   const r = await fetch(`/api/matchup?home=${encodeURIComponent(home)}&away=${encodeURIComponent(away)}&neutral=${neutral}&k=${k}`);
   const m = await r.json();
   if(m.error){ document.getElementById('exploreResult').innerHTML = `<div class="note">${m.error}</div>`; return; }
-  document.getElementById('exploreResult').innerHTML = `
-    <div class="explore-result">
-      <div class="result-stats">
-        <div class="elo-row">
-          <span>${m.home} &nbsp;<span style="font-family:var(--font-mono);font-size:11px">Form: ${renderFormBadge(m.home_form)}</span>&nbsp; Elo: ${m.home_elo}</span>
-          <span>Elo: ${m.away_elo} &nbsp;<span style="font-family:var(--font-mono);font-size:11px">Form: ${renderFormBadge(m.away_form)}</span>&nbsp; ${m.away}</span>
-        </div>
-        <div class="bar-row">
-          <div class="lbls"><span>H / D / A</span><span>${m.p_home}% / ${m.p_draw}% / ${m.p_away}%</span></div>
-          <div class="tri-bar"><div style="width:${m.p_home}%"></div><div style="width:${m.p_draw}%"></div><div style="width:${m.p_away}%"></div></div>
-        </div>
-        <div class="most-likely">Most likely: ${m.most_likely_score} (${m.p_most_likely}%) · expected goals λ ${m.lam_home}–${m.lam_away}</div>
-        ${m.is_knockout ? `<div class="bar-row" style="margin-top:12px">
-          <div class="adv-label">ADVANCES (incl. ET + pens)</div>
-          <div class="lbls"><span>${m.home}</span><span>${m.away}</span></div>
-          <div class="lbls"><span style="color:var(--violet)">${m.p_home_advances}%</span><span style="color:var(--amber)">${m.p_away_advances}%</span></div>
-          <div class="adv-bar"><div style="width:${m.p_home_advances}%"></div><div style="width:${m.p_away_advances}%"></div></div>
-        </div>` : ''}
-        <div class="explanation-block">
-          <div><span class="positive">${m.home_explanation}</span></div>
-          <div><span class="negative">${m.away_explanation}</span></div>
-        </div>
-        ${m.preview ? `<div style="margin-top:12px;font-size:12px;line-height:1.6;color:var(--text-dim);border-top:1px solid var(--border);padding-top:12px">${m.preview}</div>` : ''}
-      </div>
-      <div class="heat">${renderHeat(m.matrix)}</div>
-    </div>`;
+  // Normalize /api/matchup field names to match renderMatchCard expectations
+  const card = Object.assign({}, m, {model_H: m.p_home, model_D: m.p_draw, model_A: m.p_away});
+  document.getElementById('exploreResult').innerHTML = `<div style="padding-top:16px">${renderMatchCard(card)}</div>`;
 }
 
 async function triggerRefresh(){
